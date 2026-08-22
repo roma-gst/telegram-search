@@ -8,17 +8,25 @@ class RecordRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def search_by_name(
+    def search(
         self,
-        name: str,
+        name: str | None = None,
+        cidade: str | None = None,
+        estado: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> list[Record]:
-        statement = (
-            select(Record)
-            .where(Record.nome.ilike(f"%{name}%"))
-            .offset(offset)
-            .limit(limit)
-        )
+        statement = select(Record)
+
+        if name:
+            statement = statement.where(Record.nome.ilike(f"%{name}%"))
+
+        if cidade:
+            statement = statement.where(Record.cidade.ilike(f"%{cidade}%"))
+
+        if estado:
+            statement = statement.where(Record.estado == estado.upper())
+
+        statement = statement.offset(offset).limit(limit)
 
         return list(self.session.scalars(statement).all())

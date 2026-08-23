@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database.session import engine
@@ -21,29 +21,36 @@ def search_records(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ):
-    with Session(engine) as session:
-        service = SearchService(session)
+    try:
+        with Session(engine) as session:
+            service = SearchService(session)
 
-        records = service.search(
-            name=name,
-            cidade=cidade,
-            estado=estado,
-            limit=limit,
-            offset=offset,
+            records = service.search(
+                name=name,
+                cidade=cidade,
+                estado=estado,
+                limit=limit,
+                offset=offset,
+            )
+
+            return [
+                {
+                    "id": record.id,
+                    "nome": record.nome,
+                    "email": record.email,
+                    "telefone": record.telefone,
+                    "cidade": record.cidade,
+                    "estado": record.estado,
+                    "data_nascimento": record.data_nascimento,
+                    "username": record.username,
+                    "empresa": record.empresa,
+                    "data_cadastro": record.data_cadastro,
+                }
+                for record in records
+            ]
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
         )
-
-        return [
-            {
-                "id": record.id,
-                "nome": record.nome,
-                "email": record.email,
-                "telefone": record.telefone,
-                "cidade": record.cidade,
-                "estado": record.estado,
-                "data_nascimento": record.data_nascimento,
-                "username": record.username,
-                "empresa": record.empresa,
-                "data_cadastro": record.data_cadastro,
-            }
-            for record in records
-        ]

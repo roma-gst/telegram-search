@@ -69,14 +69,24 @@ def build_keyboard(
 def parse_search(text: str) -> tuple[str, str | None, str | None]:
     parts = [part.strip() for part in text.split("|")]
 
-    name = parts[0]
-    estado = parts[1].upper() if len(parts) > 1 and parts[1] else None
-    cidade = parts[2] if len(parts) > 2 and parts[2] else None
-
     if len(parts) > 3:
         raise ValueError(
             "Formato inválido.\n"
             "Use: /buscar Nome | UF | Cidade"
+        )
+
+    name = parts[0]
+
+    if not name:
+        raise ValueError("Informe um nome.")
+
+    estado = parts[1].upper() if len(parts) > 1 and parts[1] else None
+    cidade = parts[2] if len(parts) > 2 and parts[2] else None
+
+    if estado and len(estado) != 2:
+        raise ValueError(
+            "O estado deve ter 2 letras.\n"
+            "Exemplo: /buscar Ana | SP"
         )
 
     return name, estado, cidade
@@ -122,7 +132,6 @@ async def buscar(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
     text = update.message.text or ""
-
     search_text = text.removeprefix("/buscar").strip()
 
     if not search_text:
@@ -137,9 +146,6 @@ async def buscar(
 
     try:
         name, estado, cidade = parse_search(search_text)
-
-        if not name:
-            raise ValueError("Informe um nome.")
 
         records, has_next = search_records(
             name=name,
@@ -195,7 +201,11 @@ async def pagination(
         return
 
     await query.edit_message_text(
-        format_results(search_text=search_text, records=records, offset=offset),
+        format_results(
+            records=records,
+            search_text=search_text,
+            offset=offset,
+        ),
         reply_markup=build_keyboard(
             search_text,
             offset,

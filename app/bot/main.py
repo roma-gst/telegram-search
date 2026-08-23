@@ -66,9 +66,26 @@ def build_keyboard(
     return InlineKeyboardMarkup([buttons]) if buttons else InlineKeyboardMarkup([])
 
 
+def parse_search(text: str) -> tuple[str, str | None, str | None]:
+    parts = [part.strip() for part in text.split("|")]
+
+    name = parts[0]
+    estado = parts[1].upper() if len(parts) > 1 and parts[1] else None
+    cidade = parts[2] if len(parts) > 2 and parts[2] else None
+
+    if len(parts) > 3:
+        raise ValueError(
+            "Formato inválido.\n"
+            "Use: /buscar Nome | UF | Cidade"
+        )
+
+    return name, estado, cidade
+
+
 def search_records(
     name: str,
     estado: str | None,
+    cidade: str | None,
     offset: int,
 ):
     with Session(engine) as session:
@@ -77,6 +94,7 @@ def search_records(
         records = service.search(
             name=name,
             estado=estado,
+            cidade=cidade,
             limit=PAGE_SIZE + 1,
             offset=offset,
         )
@@ -92,9 +110,10 @@ async def start(
 ) -> None:
     await update.message.reply_text(
         "Olá! Bot funcionando.\n\n"
-        "Use /buscar seguido de um nome.\n"
-        "Exemplo: /buscar Ana\n"
-        "Com estado: /buscar Ana SP"
+        "Use:\n"
+        "/buscar Ana\n"
+        "/buscar Ana | SP\n"
+        "/buscar Ana | SP | São Paulo"
     )
 
 
@@ -102,43 +121,42 @@ async def buscar(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
-    if not context.args:
+    text = update.message.text or ""
+
+    search_text = text.removeprefix("/buscar").strip()
+
+    if not search_text:
         await update.message.reply_text(
-            "Informe um nome.\n"
-            "Exemplo: /buscar Ana\n"
-            "Com estado: /buscar Ana SP"
+            "Informe um nome.\n\n"
+            "Exemplo:\n"
+            "/buscar Ana\n"
+            "/buscar Ana | SP\n"
+            "/buscar Ana | SP | São Paulo"
         )
         return
 
-    args = context.args
-
-    estado = None
-
-    if len(args) >= 2 and len(args[-1]) == 2:
-        estado = args[-1].upper()
-        name = " ".join(args[:-1])
-    else:
-        name = " ".join(args)
-
-    name = name.strip()
-
     try:
+        name, estado, cidade = parse_search(search_text)
+
+        if not name:
+            raise ValueError("Informe um nome.")
+
         records, has_next = search_records(
             name=name,
             estado=estado,
+            cidade=cidade,
             offset=0,
         )
+
     except ValueError as error:
         await update.message.reply_text(str(error))
         return
 
     if not records:
         await update.message.reply_text(
-            f"Nenhum resultado encontrado para: {' '.join(args)}"
+            f"Nenhum resultado encontrado para: {search_text}"
         )
         return
-
-    search_text = " ".join(args)
 
     await update.message.reply_text(
         format_results(records, search_text, 0),
@@ -160,27 +178,24 @@ async def pagination(
     _, offset_text, search_text = query.data.split(":", 2)
     offset = int(offset_text)
 
-    args = search_text.split()
+    try:
+        name, estado, cidade = parse_search(search_text)
 
-    estado = None
+        records, has_next = search_records(
+            name=name,
+            estado=estado,
+            cidade=cidade,
+            offset=offset,
+        )
 
-    if len(args) >= 2 and len(args[-1]) == 2:
-        estado = args[-1].upper()
-        name = " ".join(args[:-1])
-    else:
-        name = search_text
-
-    records, has_next = search_records(
-        name=name,
-        estado=estado,
-        offset=offset,
-    )
+    except ValueError:
+        return
 
     if not records:
         return
 
     await query.edit_message_text(
-        format_results(records, search_text, offset),
+        format_results(search_text=search_text, records=records, offset=offset),
         reply_markup=build_keyboard(
             search_text,
             offset,

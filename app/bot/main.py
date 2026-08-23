@@ -54,7 +54,7 @@ def build_keyboard(
             [
                 InlineKeyboardButton(
                     f"Ver detalhes #{record.id}",
-                    callback_data=f"detalhe:{record.id}",
+                    callback_data=f"detalhe:{record.id}:{offset}:{search_text}",
                 )
             ]
         )
@@ -97,8 +97,17 @@ def parse_search(text: str) -> tuple[str, str | None, str | None]:
     if not name:
         raise ValueError("Informe um nome.")
 
-    estado = parts[1].upper() if len(parts) > 1 and parts[1] else None
-    cidade = parts[2] if len(parts) > 2 and parts[2] else None
+    estado = (
+        parts[1].upper()
+        if len(parts) > 1 and parts[1]
+        else None
+    )
+
+    cidade = (
+        parts[2]
+        if len(parts) > 2 and parts[2]
+        else None
+    )
 
     if estado and len(estado) != 2:
         raise ValueError(
@@ -129,6 +138,20 @@ def search_records(
     has_next = len(records) > PAGE_SIZE
 
     return records[:PAGE_SIZE], has_next
+
+
+def get_results(
+    search_text: str,
+    offset: int,
+):
+    name, estado, cidade = parse_search(search_text)
+
+    return search_records(
+        name=name,
+        estado=estado,
+        cidade=cidade,
+        offset=offset,
+    )
 
 
 async def start(
@@ -162,13 +185,9 @@ async def buscar(
         return
 
     try:
-        name, estado, cidade = parse_search(search_text)
-
-        records, has_next = search_records(
-            name=name,
-            estado=estado,
-            cidade=cidade,
-            offset=0,
+        records, has_next = get_results(
+            search_text,
+            0,
         )
 
     except ValueError as error:
@@ -182,7 +201,11 @@ async def buscar(
         return
 
     await update.message.reply_text(
-        format_results(records, search_text, 0),
+        format_results(
+            records,
+            search_text,
+            0,
+        ),
         reply_markup=build_keyboard(
             records,
             search_text,
@@ -203,13 +226,9 @@ async def pagination(
     offset = int(offset_text)
 
     try:
-        name, estado, cidade = parse_search(search_text)
-
-        records, has_next = search_records(
-            name=name,
-            estado=estado,
-            cidade=cidade,
-            offset=offset,
+        records, has_next = get_results(
+            search_text,
+            offset,
         )
 
     except ValueError:
@@ -220,9 +239,9 @@ async def pagination(
 
     await query.edit_message_text(
         format_results(
-            records=records,
-            search_text=search_text,
-            offset=offset,
+            records,
+            search_text,
+            offset,
         ),
         reply_markup=build_keyboard(
             records,
@@ -240,11 +259,19 @@ async def detail(
     query = update.callback_query
     await query.answer()
 
-    _, record_id_text = query.data.split(":", 1)
+    _, record_id_text, offset_text, search_text = query.data.split(
+        ":",
+        3,
+    )
+
     record_id = int(record_id_text)
+    offset = int(offset_text)
 
     with Session(engine) as session:
-        record = session.get(Record, record_id)
+        record = session.get(
+            Record,
+            record_id,
+        )
 
     if not record:
         await query.edit_message_text(
@@ -265,7 +292,21 @@ async def detail(
         f"Data de cadastro: {record.data_cadastro}"
     )
 
-    await query.edit_message_text(text)
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "⬅️ Voltar aos resultados",
+                    callback_data=f"buscar:{offset}:{search_text}",
+                )
+            ]
+        ]
+    )
+
+    await query.edit_message_text(
+        text,
+        reply_markup=keyboard,
+    )
 
 
 def create_bot() -> Application:

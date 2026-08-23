@@ -18,13 +18,13 @@ PAGE_SIZE = 10
 
 def format_results(
     records,
-    name: str,
+    search_text: str,
     offset: int,
 ) -> str:
     page = (offset // PAGE_SIZE) + 1
 
     lines = [
-        f"Resultados para: {name}",
+        f"Resultados para: {search_text}",
         f"Página {page}",
         "",
     ]
@@ -41,7 +41,7 @@ def format_results(
 
 
 def build_keyboard(
-    name: str,
+    search_text: str,
     offset: int,
     has_next: bool,
 ) -> InlineKeyboardMarkup:
@@ -51,7 +51,7 @@ def build_keyboard(
         buttons.append(
             InlineKeyboardButton(
                 "⬅️ Anterior",
-                callback_data=f"buscar:{offset - PAGE_SIZE}:{name}",
+                callback_data=f"buscar:{offset - PAGE_SIZE}:{search_text}",
             )
         )
 
@@ -59,19 +59,24 @@ def build_keyboard(
         buttons.append(
             InlineKeyboardButton(
                 "Próxima ➡️",
-                callback_data=f"buscar:{offset + PAGE_SIZE}:{name}",
+                callback_data=f"buscar:{offset + PAGE_SIZE}:{search_text}",
             )
         )
 
     return InlineKeyboardMarkup([buttons]) if buttons else InlineKeyboardMarkup([])
 
 
-def search_records(name: str, offset: int):
+def search_records(
+    name: str,
+    estado: str | None,
+    offset: int,
+):
     with Session(engine) as session:
         service = SearchService(session)
 
         records = service.search(
             name=name,
+            estado=estado,
             limit=PAGE_SIZE + 1,
             offset=offset,
         )
@@ -88,7 +93,8 @@ async def start(
     await update.message.reply_text(
         "Olá! Bot funcionando.\n\n"
         "Use /buscar seguido de um nome.\n"
-        "Exemplo: /buscar Ana"
+        "Exemplo: /buscar Ana\n"
+        "Com estado: /buscar Ana SP"
     )
 
 
@@ -99,24 +105,45 @@ async def buscar(
     if not context.args:
         await update.message.reply_text(
             "Informe um nome.\n"
-            "Exemplo: /buscar Ana"
+            "Exemplo: /buscar Ana\n"
+            "Com estado: /buscar Ana SP"
         )
         return
 
-    name = " ".join(context.args).strip()
+    args = context.args
 
-    records, has_next = search_records(name, 0)
+    estado = None
+
+    if len(args) >= 2 and len(args[-1]) == 2:
+        estado = args[-1].upper()
+        name = " ".join(args[:-1])
+    else:
+        name = " ".join(args)
+
+    name = name.strip()
+
+    try:
+        records, has_next = search_records(
+            name=name,
+            estado=estado,
+            offset=0,
+        )
+    except ValueError as error:
+        await update.message.reply_text(str(error))
+        return
 
     if not records:
         await update.message.reply_text(
-            f"Nenhum resultado encontrado para: {name}"
+            f"Nenhum resultado encontrado para: {' '.join(args)}"
         )
         return
 
+    search_text = " ".join(args)
+
     await update.message.reply_text(
-        format_results(records, name, 0),
+        format_results(records, search_text, 0),
         reply_markup=build_keyboard(
-            name,
+            search_text,
             0,
             has_next,
         ),
@@ -130,18 +157,32 @@ async def pagination(
     query = update.callback_query
     await query.answer()
 
-    _, offset_text, name = query.data.split(":", 2)
+    _, offset_text, search_text = query.data.split(":", 2)
     offset = int(offset_text)
 
-    records, has_next = search_records(name, offset)
+    args = search_text.split()
+
+    estado = None
+
+    if len(args) >= 2 and len(args[-1]) == 2:
+        estado = args[-1].upper()
+        name = " ".join(args[:-1])
+    else:
+        name = search_text
+
+    records, has_next = search_records(
+        name=name,
+        estado=estado,
+        offset=offset,
+    )
 
     if not records:
         return
 
     await query.edit_message_text(
-        format_results(records, name, offset),
+        format_results(records, search_text, offset),
         reply_markup=build_keyboard(
-            name,
+            search_text,
             offset,
             has_next,
         ),

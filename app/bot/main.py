@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config.settings import settings
 from app.database.session import engine
+from app.models.record import Record
 from app.services.search_service import SearchService
 
 
@@ -41,14 +42,27 @@ def format_results(
 
 
 def build_keyboard(
+    records,
     search_text: str,
     offset: int,
     has_next: bool,
 ) -> InlineKeyboardMarkup:
     buttons = []
 
-    if offset > 0:
+    for record in records:
         buttons.append(
+            [
+                InlineKeyboardButton(
+                    f"Ver detalhes #{record.id}",
+                    callback_data=f"detalhe:{record.id}",
+                )
+            ]
+        )
+
+    navigation = []
+
+    if offset > 0:
+        navigation.append(
             InlineKeyboardButton(
                 "⬅️ Anterior",
                 callback_data=f"buscar:{offset - PAGE_SIZE}:{search_text}",
@@ -56,14 +70,17 @@ def build_keyboard(
         )
 
     if has_next:
-        buttons.append(
+        navigation.append(
             InlineKeyboardButton(
                 "Próxima ➡️",
                 callback_data=f"buscar:{offset + PAGE_SIZE}:{search_text}",
             )
         )
 
-    return InlineKeyboardMarkup([buttons]) if buttons else InlineKeyboardMarkup([])
+    if navigation:
+        buttons.append(navigation)
+
+    return InlineKeyboardMarkup(buttons)
 
 
 def parse_search(text: str) -> tuple[str, str | None, str | None]:
@@ -167,6 +184,7 @@ async def buscar(
     await update.message.reply_text(
         format_results(records, search_text, 0),
         reply_markup=build_keyboard(
+            records,
             search_text,
             0,
             has_next,
@@ -207,11 +225,47 @@ async def pagination(
             offset=offset,
         ),
         reply_markup=build_keyboard(
+            records,
             search_text,
             offset,
             has_next,
         ),
     )
+
+
+async def detail(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    _, record_id_text = query.data.split(":", 1)
+    record_id = int(record_id_text)
+
+    with Session(engine) as session:
+        record = session.get(Record, record_id)
+
+    if not record:
+        await query.edit_message_text(
+            "Registro não encontrado."
+        )
+        return
+
+    text = (
+        f"ID: {record.id}\n\n"
+        f"Nome: {record.nome}\n"
+        f"Email: {record.email}\n"
+        f"Telefone: {record.telefone}\n"
+        f"Cidade: {record.cidade}\n"
+        f"Estado: {record.estado}\n"
+        f"Data de nascimento: {record.data_nascimento}\n"
+        f"Username: {record.username}\n"
+        f"Empresa: {record.empresa}\n"
+        f"Data de cadastro: {record.data_cadastro}"
+    )
+
+    await query.edit_message_text(text)
 
 
 def create_bot() -> Application:
@@ -238,6 +292,13 @@ def create_bot() -> Application:
         CallbackQueryHandler(
             pagination,
             pattern=r"^buscar:",
+        )
+    )
+
+    application.add_handler(
+        CallbackQueryHandler(
+            detail,
+            pattern=r"^detalhe:",
         )
     )
 
